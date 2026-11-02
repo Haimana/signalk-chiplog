@@ -223,6 +223,14 @@ export const MESSAGES = {
     'mail.footer': 'Sent automatically by Chiplog, this vessel’s logbook.',
 
     'map.seamarks': 'Seamarks',
+    'map.depthCorridor': 'Depths along the track (LiveDepth)',
+    'map.depthLegend': 'Depth below transducer, uncorrected, shallowest',
+    'map.depthSafety': 'Red outline: shallower than {depth} m',
+    'map.depthLoading': 'Loading soundings…',
+    'map.depthNone': 'No LiveDepth soundings along this track.',
+    'map.depthPartial': '{failed} tiles could not be read.',
+    'map.depthUnavailable': 'LiveDepth is not available on this server.',
+    'map.depthPopup': '{depth} below transducer · {count} soundings',
 
     'animation.title': 'Passage animation',
     'animation.intro':
@@ -807,6 +815,14 @@ export const MESSAGES = {
     'mail.footer': 'Envoyé automatiquement par Chiplog, le journal de bord de ce navire.',
 
     'map.seamarks': 'Balisage',
+    'map.depthCorridor': 'Profondeurs le long de la trace (LiveDepth)',
+    'map.depthLegend': 'Profondeur sous le transducteur, non corrigée, la plus faible',
+    'map.depthSafety': 'Contour rouge : moins de {depth} m',
+    'map.depthLoading': 'Chargement des sondes…',
+    'map.depthNone': 'Aucune sonde LiveDepth le long de cette trace.',
+    'map.depthPartial': '{failed} tuiles n’ont pas pu être lues.',
+    'map.depthUnavailable': 'LiveDepth n’est pas disponible sur ce serveur.',
+    'map.depthPopup': '{depth} sous le transducteur · {count} sondes',
 
     'animation.title': 'Animation des navigations',
     'animation.intro':

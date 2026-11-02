@@ -99,6 +99,23 @@ As of the last detection cycle, at most 15 seconds old:
   as `default`). `source` is the Signal K source reference, `null` when the server gives none. When signalk-autostate is
   among several sources of `navigation.state`, its value is the one used.
 
+### `GET /depth-corridor` — `readonly`
+
+The passage map's depth corridor settings (the `depthCorridor` plugin option), with defaults filled in. The webapp reads
+the soundings itself, from signalk-livedepth-plugin's public tile endpoints under `livedepthBase`.
+
+```json
+{
+  "enabled": false,
+  "widthM": 300,
+  "zoom": 16,
+  "shadeLimitM": 10,
+  "safetyDepthM": 3,
+  "minValidDepthM": 0.3,
+  "livedepthBase": "/plotterext/signalk-livedepth-plugin/bathymetry"
+}
+```
+
 ## Entries
 
 ### `GET /entries` — `readonly`

@@ -1,5 +1,7 @@
 import { html, useEffect, useRef } from '../../vendor/preact-htm.mjs';
+import { get } from '../api.mjs';
 import { useLocale } from '../context.mjs';
+import { corridorSettings } from '../depth-corridor.mjs';
 
 const TRACK_COLOUR = '#e8590c';
 const DEPARTURE_COLOUR = '#2b8a3e';
@@ -37,6 +39,8 @@ export function TrackMap({ track, entry, boat }) {
   const overlay = useRef(null);
   const fitted = useRef(false);
   const boatMarker = useRef(null);
+  const layers = useRef(null);
+  const depth = useRef(null);
 
   useEffect(() => {
     const instance = L.map(container.current, { scrollWheelZoom: false });
@@ -50,13 +54,65 @@ export function TrackMap({ track, entry, boat }) {
       referrerPolicy: TILE_REFERRER_POLICY,
       attribution: '© <a href="https://www.openseamap.org">OpenSeaMap</a>'
     }).addTo(instance);
-    L.control.layers({ OpenStreetMap: streets }, { [t('map.seamarks')]: seamarks }).addTo(instance);
+    layers.current = L.control
+      .layers({ OpenStreetMap: streets }, { [t('map.seamarks')]: seamarks })
+      .addTo(instance);
     map.current = instance;
     return () => {
       instance.remove();
       map.current = null;
+      layers.current = null;
+      depth.current = null;
     };
   }, []);
+
+  // The LiveDepth soundings around the track, offered as an overlay when the
+  // server enables it. Its code and tiles load only once the crew switches it
+  // on; a refreshed track replaces the layer, keeping it on if it was.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!track?.geometry) {
+        return;
+      }
+      const settings = corridorSettings(await get('/depth-corridor').catch(() => null));
+      if (cancelled || !settings.enabled || !map.current) {
+        return;
+      }
+      const instance = map.current;
+      const previous = depth.current;
+      const wasOn = previous ? instance.hasLayer(previous) : false;
+      const placeholder = L.layerGroup();
+      let layer = null;
+      const swap = async () => {
+        if (layer) {
+          return;
+        }
+        const { createDepthCorridorLayer } = await import('./DepthCorridorLayer.mjs');
+        if (cancelled || depth.current !== placeholder) {
+          return;
+        }
+        layer = createDepthCorridorLayer({ track, settings, t });
+        layer.addTo(instance);
+        placeholder.off('add', swap);
+        placeholder.on('add', () => layer.addTo(instance));
+      };
+      placeholder.on('add', swap);
+      placeholder.on('remove', () => layer?.remove());
+      if (previous) {
+        previous.remove();
+        layers.current?.removeLayer(previous);
+      }
+      depth.current = placeholder;
+      layers.current?.addOverlay(placeholder, t('map.depthCorridor'));
+      if (wasOn) {
+        placeholder.addTo(instance);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [track]);
 
   // Redrawn on each refresh of a passage in progress, without resetting the
   // view the reader may have zoomed to.

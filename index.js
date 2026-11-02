@@ -1,4 +1,5 @@
 const { registerRoutes } = require('./lib/api');
+const { DEPTH_CORRIDOR_SCHEMA, depthCorridorSettings } = require('./lib/depth-corridor');
 const { openDatabase } = require('./lib/database');
 const { createPassageDetector, DETECTION_DEFAULTS, TICK_INTERVAL_MS } = require('./lib/detection');
 const { ApiError } = require('./lib/errors');
@@ -419,7 +420,8 @@ module.exports = function (app) {
         title: 'Vessel context (retrospective analysis)',
         description:
           'Only needed running the replay from a different Signal K server than the one that wrote the history — e.g. a development instance pointed at a boat’s production database. The vessel context the data was tagged with, such as "vessels.urn:mrn:imo:mmsi:123456789"; a failed replay names the contexts actually found. Leave empty to use this server’s own (Signal K → Server → Vessel Identity). Applies to either history source'
-      }
+      },
+      depthCorridor: DEPTH_CORRIDOR_SCHEMA
     },
     // RJSF evaluates dependencies each time the selector changes. Keeping the
     // InfluxDB fields out of the top-level properties hides them in History
@@ -720,7 +722,8 @@ module.exports = function (app) {
           config.influxQueryTimeoutSeconds ?? INFLUX_DEFAULTS.influxQueryTimeoutSeconds,
         influxSelfContext: config.influxSelfContext || null,
         retrospectiveHistorySource:
-          config.retrospectiveHistorySource === 'signalk' ? 'signalk' : 'influxdb1'
+          config.retrospectiveHistorySource === 'signalk' ? 'signalk' : 'influxdb1',
+        depthCorridor: depthCorridorSettings(config.depthCorridor)
       };
 
       if (settings.logbookTimeZone && !isTimeZone(settings.logbookTimeZone)) {
