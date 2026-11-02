@@ -19,13 +19,17 @@ import {
   tileFraction
 } from '../public/js/lib/livedepth-grid.mjs';
 import {
-  DEFAULT_SCALE_MAX_M,
-  DEPTH_STOPS,
-  SAFETY_COLOUR,
-  legendGradient,
-  scaleColour,
-  scaleMax
-} from '../public/js/depth-scale.mjs';
+  LIVEDEPTH_RENDER_DEFAULTS,
+  SHADE_CONTOUR_LEVELS,
+  SHADE_RAMP,
+  bandColor,
+  buildSurface,
+  depthCss,
+  formatDepth,
+  overlayMarks,
+  shadeField
+} from '../public/js/lib/livedepth-render.mjs';
+import { legendBands } from '../public/js/components/DepthCorridorLayer.mjs';
 import {
   LIVEDEPTH_STATE_KEY,
   liveDepthSettings,
@@ -151,6 +155,23 @@ describe('depth corridor', () => {
     assert.ok(multi.contains(28.6005, 43.8));
     assert.ok(multi.contains(28.7005, 43.8));
     assert.ok(!multi.contains(28.65, 43.8), 'the gap between the lines is outside');
+  });
+
+  it('in bbox mode takes everything in the track’s bounding box plus the margin', () => {
+    const box = createCorridor(TRACK, 300, { mode: 'bbox', marginM: 100 });
+    assert.equal(box.mode, 'bbox');
+    const [west, south, east, north] = box.bbox;
+    assert.ok(box.contains((west + east) / 2, north - 1e-6));
+    assert.ok(!box.contains(east + 0.01, (south + north) / 2));
+    assert.ok(box.contains(28.61, 43.8 + 90 / M_PER_DEG_LAT), 'within the margin');
+    const z = 17;
+    const tiles = corridorTiles(box, z);
+    const corridorCount = corridorTiles(createCorridor(TRACK, 100), z).length;
+    assert.ok(tiles.length >= corridorCount, 'every tile of the box');
+    assert.ok(
+      Math.abs(box.distance(28.61, 43.8 + 50 / M_PER_DEG_LAT) - 50) < 1,
+      'still measures to the track'
+    );
   });
 
   it('is null without a track', () => {
@@ -298,56 +319,81 @@ describe('corridor settings', () => {
     });
     assert.deepEqual(s, { ...DEPTH_CORRIDOR_DEFAULTS, enabled: true }, 'earlier keys ignored');
     assert.equal(corridorSettings({ widthM: 400 }).widthM, 400);
+    assert.equal(corridorSettings({ mode: 'bbox' }).mode, 'bbox');
+    assert.equal(corridorSettings({ mode: 'circle' }).mode, 'corridor');
+    assert.equal(corridorSettings({ marginM: 0 }).marginM, 0);
+    assert.equal(corridorSettings({ marginM: -5 }).marginM, 100);
   });
 });
 
-describe('depth colour scale', () => {
-  const scale = { safetyDepthM: 3, maxDepthM: 40 };
-
-  it('is red under the safety depth, orange at it and purple at the deepest', () => {
-    assert.deepEqual(scaleColour(2.9, scale), SAFETY_COLOUR);
-    assert.deepEqual(scaleColour(3, scale), DEPTH_STOPS[0].slice(1));
-    assert.deepEqual(scaleColour(40, scale), DEPTH_STOPS.at(-1).slice(1));
-    assert.deepEqual(scaleColour(400, scale), DEPTH_STOPS.at(-1).slice(1));
+describe('LiveDepth rendering (ported from the plugin)', () => {
+  it('shades in six bands of LiveDepth’s palette, to the shade limit only', () => {
+    assert.equal(SHADE_CONTOUR_LEVELS, 6);
+    assert.deepEqual(SHADE_RAMP[0], [0, 37, 175, 248]);
+    assert.deepEqual(bandColor(0.1, 10), bandColor(1.6, 10), 'same band');
+    assert.notDeepEqual(bandColor(1.6, 10), bandColor(1.7, 10), 'next band');
+    assert.equal(bandColor(10, 10), null, 'the shade limit and deeper are left to the chart');
+    assert.equal(bandColor(25, 10), null);
+    assert.ok(bandColor(25, 30), 'a deeper shade limit shades it');
+    assert.equal(depthCss(0, 10, 0.95), 'rgba(37,175,248,0.95)');
   });
 
-  it('gives depths 5 m apart clearly different colours', () => {
-    for (let d = 5; d < 35; d += 5) {
-      const [a, b] = [scaleColour(d, scale), scaleColour(d + 5, scale)];
-      const delta = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-      assert.ok(delta > 40, `${d} m vs ${d + 5} m: ${delta}`);
-    }
+  it('builds the depth field around the soundings, never deeper than the shallowest nearby', () => {
+    const soundings = [
+      { lon: 28.61, lat: 43.8, depth: 4 },
+      { lon: 28.6101, lat: 43.8, depth: 8 }
+    ];
+    const surface = buildSurface(soundings, { fieldCells: 256, fillMetres: 6 });
+    const { field } = surface;
+    assert.ok(field.width > 0 && field.height > 0);
+    const finite = [...field.depth].filter(Number.isFinite);
+    assert.ok(finite.length > 0);
+    assert.ok(Math.min(...finite) >= 4 && Math.max(...finite) <= 8);
+    assert.ok(Array.isArray(surface.contours.major));
+    assert.equal(buildSurface([], {}), null);
   });
 
-  it('keeps a deliberate deepest depth, and fits LiveDepth’s 10 m default or none to the soundings', () => {
-    const depths = Array.from({ length: 100 }, (_, i) => 5 + i * 0.25);
-    assert.equal(scaleMax(depths, { shadeLimitM: 30, safetyDepthM: 3 }), 30);
-    assert.equal(
-      scaleMax(depths, { shadeLimitM: 45, safetyDepthM: 3 }),
-      45,
-      'a deeper shade limit is kept'
-    );
-    assert.equal(scaleMax(depths, { shadeLimitM: null, safetyDepthM: 3 }), 30);
-    assert.equal(scaleMax(depths, { shadeLimitM: 10, safetyDepthM: 3 }), 30);
-    assert.equal(scaleMax(depths, { shadeLimitM: 0, safetyDepthM: 3 }), 30);
-    assert.equal(
-      scaleMax([...depths, 300], { shadeLimitM: 0, safetyDepthM: 3 }),
-      30,
-      'one stray reading'
-    );
-    assert.equal(scaleMax([], { shadeLimitM: 0, safetyDepthM: 3 }), DEFAULT_SCALE_MAX_M);
-    assert.equal(scaleMax([1, 2], { shadeLimitM: 0, safetyDepthM: 3 }), 8);
+  it('shades a view of the field as LiveDepth’s shader does', () => {
+    const soundings = [{ lon: 28.61, lat: 43.8, depth: 2 }];
+    const { field } = buildSurface(soundings, { fieldCells: 64, fillMetres: 6 });
+    const rgba = shadeField(field, field.extent, 16, 16, {});
+    const centre = (8 * 16 + 8) * 4;
+    assert.deepEqual([...rgba.slice(centre, centre + 4)], [...bandColor(2, 10), 255]);
+    const [x0, y0, x1, y1] = field.extent;
+    const wide = shadeField(field, [x0 - 100, y0 - 100, x1 + 100, y1 + 100], 16, 16, {});
+    assert.equal(wide[3], 0, 'outside the field transparent');
+    const deep = buildSurface([{ lon: 28.61, lat: 43.8, depth: 20 }], { fieldCells: 64 });
+    assert.equal(shadeField(deep.field, deep.field.extent, 16, 16, {})[centre + 3], 0);
   });
 
-  it('draws the legend from the same colours', () => {
-    const css = legendGradient(scale);
-    assert.ok(css.startsWith('linear-gradient(to right, rgb(215,25,28) 0%'));
-    assert.ok(css.includes('rgb(76,29,149) 100%'));
+  it('marks shoals at or under the safety depth and labels merged clusters', () => {
+    const soundings = [
+      { lon: 28.61, lat: 43.8, depth: 2.5 },
+      { lon: 28.61001, lat: 43.8, depth: 2.6 },
+      { lon: 28.62, lat: 43.8, depth: 12 }
+    ];
+    const marks = overlayMarks(soundings, { safetyDepthMetres: 3 }, 1);
+    assert.equal(marks.shoals.length, 2);
+    assert.equal(marks.clusters.at(-1).depth, 2.5, 'shallowest drawn last');
+    assert.equal(formatDepth(2.54), '2.5');
+    assert.equal(formatDepth(3.048, 'foot'), '10');
+  });
+
+  it('draws the legend bands with the surface’s colours', () => {
+    const bands = legendBands(12);
+    assert.equal(bands.length, 6);
+    assert.deepEqual(bands[0], { from: 0, to: 2, colour: bandColor(1, 12) });
   });
 });
 
 describe('LiveDepth display settings', () => {
-  const defaults = { found: false, safetyDepthM: 3, shadeLimitM: null, maxDepthM: 100 };
+  const defaults = {
+    found: false,
+    safetyDepthM: 3,
+    shadeLimitM: 10,
+    maxDepthM: 100,
+    render: LIVEDEPTH_RENDER_DEFAULTS
+  };
   // As Freeboard-SK 3.4 stores LiveDepth 0.3.16's settings.
   const stored = (values, scope = 'extension') =>
     JSON.stringify({
@@ -364,7 +410,19 @@ describe('LiveDepth display settings', () => {
       maxDepthMetres: 60,
       cellPx: 24
     };
-    const expected = { found: true, safetyDepthM: 2.5, shadeLimitM: 25, maxDepthM: 60 };
+    const expected = {
+      found: true,
+      safetyDepthM: 2.5,
+      shadeLimitM: 25,
+      maxDepthM: 60,
+      render: {
+        ...LIVEDEPTH_RENDER_DEFAULTS,
+        safetyDepthMetres: 2.5,
+        shadeLimitMetres: 25,
+        maxDepthMetres: 60,
+        cellPx: 24
+      }
+    };
     assert.deepEqual(liveDepthSettings(stored(values)), expected);
     assert.deepEqual(liveDepthSettings(stored(values, 'instance')), expected, 'per widget');
   });
@@ -386,8 +444,26 @@ describe('LiveDepth display settings', () => {
     assert.deepEqual(liveDepthSettings(stored({ safetyDepthMetres: 0 })), {
       ...defaults,
       found: true,
-      safetyDepthM: 0
+      safetyDepthM: 0,
+      render: { ...LIVEDEPTH_RENDER_DEFAULTS, safetyDepthMetres: 0 }
     });
+  });
+
+  it('reads LiveDepth’s isobar, fill and label settings for drawing', () => {
+    const { render } = liveDepthSettings(
+      stored({
+        contourIntervalMetres: 2,
+        majorContourColor: '#123456',
+        vectorContours: false,
+        fillMetres: 99,
+        cellPx: 'x'
+      })
+    );
+    assert.equal(render.contourIntervalMetres, 2);
+    assert.equal(render.majorContourColor, '#123456');
+    assert.equal(render.vectorContours, false);
+    assert.equal(render.fillMetres, LIVEDEPTH_RENDER_DEFAULTS.fillMetres, 'out of bounds');
+    assert.equal(render.cellPx, LIVEDEPTH_RENDER_DEFAULTS.cellPx, 'ill-typed');
   });
 
   it('reads the Freeboard-SK entry from storage, and survives blocked storage', () => {

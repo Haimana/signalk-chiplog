@@ -1,26 +1,35 @@
-// A Leaflet overlay of the LiveDepth soundings within a band around the
-// passage's track (see depth-corridor.mjs). Nothing is fetched until the layer
-// is on the map; the cells are drawn on one canvas in a pane above the track,
-// redrawn after each pan or zoom, and a finer tile level is read as the map
-// zooms in. Soundings taken on this passage — within a few metres of its track —
-// are drawn solid; those of other passes through the corridor are faded.
+// A Leaflet overlay of the LiveDepth soundings around the passage's track (see
+// depth-corridor.mjs): within a band either side of it, or within its bounding
+// box. Nothing is fetched until the layer is on the map; a finer tile level is
+// read as the map zooms in. The soundings are drawn exactly as LiveDepth's own
+// Freeboard-SK layer draws them (lib/livedepth-render.mjs, ported from the
+// plugin): an interpolated depth surface shaded in bands to the shade limit,
+// isobars, shoal dots at or under the safety depth and depth labels, on one
+// canvas at LiveDepth's layer opacity, with LiveDepth's settings from this
+// browser.
 import {
   createCorridor,
   corridorSoundings,
   corridorZoom,
   createTileSource
 } from '../depth-corridor.mjs';
-import { legendGradient, scaleColour, scaleMax } from '../depth-scale.mjs';
+import {
+  LIVEDEPTH_OPACITY,
+  SHADE_CONTOUR_LEVELS,
+  bandColor,
+  buildSurface,
+  drawOverlay,
+  mercX,
+  mercY,
+  overlayMarks,
+  shadeField
+} from '../lib/livedepth-render.mjs';
 import { readLiveDepthSettings } from '../livedepth-settings.mjs';
-import { TILE_SIZE, tilePosition } from '../lib/livedepth-grid.mjs';
 
 const PANE = 'depthCorridor';
-const MIN_CELL_PX = 5;
 const HIT_PX = 6;
 // Within this of the track, a sounding is taken to be this passage's own.
 export const OWN_TRACK_M = 25;
-const OTHER_PASS_ALPHA = 0.35;
-const OUTLINE = 'rgba(0,0,0,0.45)';
 
 // One source for every passage map in the page, so going back to a passage
 // does not read its tiles again.
@@ -36,8 +45,18 @@ function formatDepth(depth) {
   return `${depth.toFixed(1)} m`;
 }
 
-// `display` — safety depth, shade limit, maximum depth — defaults to the
-// LiveDepth layer settings saved in this browser.
+// The legend's bands: LiveDepth's shading bands from the surface to the shade
+// limit, each with its colour.
+export function legendBands(shadeLimitM) {
+  const step = shadeLimitM / SHADE_CONTOUR_LEVELS;
+  return Array.from({ length: SHADE_CONTOUR_LEVELS }, (_, i) => ({
+    from: i * step,
+    to: (i + 1) * step,
+    colour: bandColor((i + 0.5) * step, shadeLimitM)
+  }));
+}
+
+// `display` — LiveDepth's settings — defaults to those saved in this browser.
 export function createDepthCorridorLayer({
   track,
   settings,
@@ -45,11 +64,16 @@ export function createDepthCorridorLayer({
   display = readLiveDepthSettings()
 }) {
   const source = sourceFor(settings.livedepthBase);
-  const corridor = createCorridor(track, settings.widthM);
+  const corridor = createCorridor(track, settings.widthM, {
+    mode: settings.mode,
+    marginM: settings.marginM
+  });
+  const render = display.render;
   let map = null;
   let canvas = null;
   let soundings = [];
-  let scale = { safetyDepthM: display.safetyDepthM, maxDepthM: scaleMax([], display) };
+  let surface = null;
+  let marksCache = null;
   let level = null;
   let loading = 0;
   let status = null;
@@ -71,45 +95,62 @@ export function createDepthCorridorLayer({
     canvas.height = size.y * ratio;
     canvas.style.width = `${size.x}px`;
     canvas.style.height = `${size.y}px`;
+    canvas.style.opacity = String(LIVEDEPTH_OPACITY);
     L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]));
     const ctx = canvas.getContext('2d');
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    ctx.clearRect(0, 0, size.x, size.y);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     hits = [];
+    if (soundings.length === 0) {
+      return;
+    }
+    // The view as an EPSG:3857 box, north up, as LiveDepth's host asks for it.
+    const nw = map.containerPointToLatLng([0, 0]);
+    const se = map.containerPointToLatLng([size.x, size.y]);
+    const box = [mercX(nw.lng), mercY(se.lat), mercX(se.lng), mercY(nw.lat)];
+    const resolution = (box[2] - box[0]) / size.x;
+    if (surface) {
+      // The surface is shaded at CSS-pixel size and scaled up, as LiveDepth's
+      // own quality scaling does; marks are drawn at full resolution on top.
+      const rgba = shadeField(surface.field, box, size.x, size.y, render, 1);
+      const image = new ImageData(rgba, size.x, size.y);
+      const scratch = document.createElement('canvas');
+      scratch.width = size.x;
+      scratch.height = size.y;
+      scratch.getContext('2d').putImageData(image, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(scratch, 0, 0, canvas.width, canvas.height);
+    }
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    const key = `${level}:${resolution.toPrecision(6)}`;
+    if (!marksCache || marksCache.key !== key) {
+      marksCache = { key, value: overlayMarks(soundings, render, resolution) };
+    }
+    const toPixel = (lon, lat) => {
+      const p = map.latLngToContainerPoint([lat, lon]);
+      return [p.x, p.y];
+    };
+    const worldToPixel = (x, y) => [
+      ((x - box[0]) / (box[2] - box[0])) * size.x,
+      ((box[3] - y) / (box[3] - box[1])) * size.y
+    ];
+    drawOverlay(ctx, {
+      surface,
+      marks: marksCache.value,
+      settings: render,
+      toPixel,
+      worldToPixel,
+      resolution,
+      zoom: map.getZoom(),
+      ratio
+    });
     const bounds = map.getBounds().pad(0.05);
-    const cells = [];
     for (const s of soundings) {
-      if (!bounds.contains([s.lat, s.lon])) {
-        continue;
+      if (bounds.contains([s.lat, s.lon])) {
+        const [x, y] = toPixel(s.lon, s.lat);
+        hits.push([x, y, s]);
       }
-      const corner = tilePosition(s.x + s.cx / TILE_SIZE, s.y + s.cy / TILE_SIZE, s.z);
-      const far = tilePosition(s.x + (s.cx + 1) / TILE_SIZE, s.y + (s.cy + 1) / TILE_SIZE, s.z);
-      const a = map.latLngToContainerPoint([corner.lat, corner.lon]);
-      const b = map.latLngToContainerPoint([far.lat, far.lon]);
-      cells.push({
-        s,
-        x: (a.x + b.x) / 2,
-        y: (a.y + b.y) / 2,
-        w: Math.max(MIN_CELL_PX, b.x - a.x),
-        h: Math.max(MIN_CELL_PX, b.y - a.y)
-      });
     }
-    // Other passes first, so this passage's own band is drawn over them;
-    // deep first within each, so a shoal is never hidden under deeper water.
-    cells.sort((p, q) => p.s.own - q.s.own || q.s.depth - p.s.depth);
-    for (const { s, x, y, w, h } of cells) {
-      const [r, g, b] = scaleColour(s.depth, scale);
-      ctx.globalAlpha = s.own ? 1 : OTHER_PASS_ALPHA;
-      ctx.fillStyle = `rgb(${r},${g},${b})`;
-      ctx.fillRect(x - w / 2, y - h / 2, w, h);
-      if (s.own) {
-        ctx.strokeStyle = OUTLINE;
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(x - w / 2, y - h / 2, w, h);
-      }
-      hits.push([x, y, s]);
-    }
-    ctx.globalAlpha = 1;
   };
 
   const load = async () => {
@@ -135,18 +176,12 @@ export function createDepthCorridorLayer({
       const result = await corridorSoundings(corridor, z, source, settings);
       // A later zoom may have asked for another level meanwhile.
       if (map && result.z === level) {
-        // Deeper than LiveDepth's maximum depth is not drawn there either.
-        soundings = result.soundings
-          .filter((s) => s.depth <= display.maxDepthM)
-          .map((s) => ({
-            ...s,
-            own: corridor.distance(s.lon, s.lat, OWN_TRACK_M) <= OWN_TRACK_M
-          }));
-        const own = soundings.filter((s) => s.own).map((s) => s.depth);
-        scale = {
-          safetyDepthM: display.safetyDepthM,
-          maxDepthM: scaleMax(own.length > 0 ? own : soundings.map((s) => s.depth), display)
-        };
+        soundings = result.soundings.map((s) => ({
+          ...s,
+          own: corridor.distance(s.lon, s.lat, OWN_TRACK_M) <= OWN_TRACK_M
+        }));
+        surface = buildSurface(soundings, render);
+        marksCache = null;
         setStatus(
           soundings.length === 0
             ? t('map.depthNone')
@@ -203,16 +238,39 @@ export function createDepthCorridorLayer({
       const title = document.createElement('div');
       title.className = 'depth-legend-title';
       title.textContent = t('map.depthLegend');
-      this.ramp = document.createElement('div');
-      this.ramp.className = 'depth-legend-ramp';
-      this.scale = document.createElement('div');
-      this.scale.className = 'depth-legend-scale';
-      const own = document.createElement('div');
-      own.className = 'depth-legend-own';
-      own.textContent = t('map.depthOwn');
+      const ramp = document.createElement('div');
+      ramp.className = 'depth-legend-ramp';
+      const bands = legendBands(display.shadeLimitM);
+      const css = ([r, g, b]) => `rgb(${r},${g},${b})`;
+      ramp.style.background = `linear-gradient(to right, ${bands
+        .map(
+          (b, i) =>
+            `${css(b.colour)} ${(i / bands.length) * 100}% ${((i + 1) / bands.length) * 100}%`
+        )
+        .join(', ')})`;
+      const scale = document.createElement('div');
+      scale.className = 'depth-legend-scale';
+      scale.append(
+        ...['0', `${+(display.shadeLimitM / 2).toFixed(1)}`, `${display.shadeLimitM} m`].map(
+          (text) => {
+            const label = document.createElement('span');
+            label.textContent = text;
+            return label;
+          }
+        )
+      );
+      const deeper = document.createElement('div');
+      deeper.className = 'depth-legend-own';
+      deeper.textContent = t('map.depthDeeper', { depth: display.shadeLimitM });
       const safety = document.createElement('div');
       safety.className = 'depth-legend-safety';
       safety.textContent = t('map.depthSafety', { depth: display.safetyDepthM });
+      const area = document.createElement('div');
+      area.className = 'depth-legend-own';
+      area.textContent =
+        settings.mode === 'bbox'
+          ? t('map.depthAreaBbox', { margin: corridor?.marginM ?? settings.marginM })
+          : t('map.depthAreaCorridor', { width: settings.widthM });
       const origin = document.createElement('div');
       origin.className = 'depth-legend-own';
       origin.textContent = t(
@@ -220,7 +278,7 @@ export function createDepthCorridorLayer({
       );
       this.note = document.createElement('div');
       this.note.className = 'depth-legend-status';
-      element.append(title, this.ramp, this.scale, safety, own, origin, this.note);
+      element.append(title, ramp, scale, deeper, safety, area, origin, this.note);
       L.DomEvent.disableClickPropagation(element);
       this.update();
       return element;
@@ -229,15 +287,6 @@ export function createDepthCorridorLayer({
       if (!this.note) {
         return;
       }
-      this.ramp.style.background = legendGradient(scale);
-      const mid = Math.round((scale.safetyDepthM + scale.maxDepthM) / 2);
-      this.scale.replaceChildren(
-        ...['0', `${scale.safetyDepthM}`, `${mid}`, `≥ ${scale.maxDepthM} m`].map((text) => {
-          const label = document.createElement('span');
-          label.textContent = text;
-          return label;
-        })
-      );
       this.note.textContent = status ?? '';
       this.note.hidden = !status;
     }
@@ -284,7 +333,7 @@ export function createDepthCorridorLayer({
 
   const layer = new Layer();
   layer.isLoading = () => loading > 0;
-  layer.scale = () => scale;
+  layer.surface = () => surface;
   layer.soundings = () => soundings;
   return layer;
 }

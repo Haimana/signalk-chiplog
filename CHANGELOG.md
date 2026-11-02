@@ -17,6 +17,15 @@ All notable changes to Chiplog are documented here. The format follows
   this passage are drawn solid, those of other passes through the corridor faded; hover or click a cell for its depth.
   The depths are LiveDepth’s shallowest per cell, below the transducer and not corrected for tide. Tiles are read only
   while the overlay is on.
+- **Depths drawn as LiveDepth draws them** (2.15.0-depth.1). The overlay now uses LiveDepth’s own rendering, ported from
+  signalk-livedepth-plugin 0.3.17 (MIT, attribution kept in `public/js/lib/livedepth-render.mjs`): the same interpolated
+  depth surface, shaded in six bands of LiveDepth’s azure-to-white palette up to the shade limit (deeper left to the
+  chart), vector isobars, dots for soundings at or under the safety depth, merged depth labels and the layer’s 0.85
+  opacity, all driven by the LiveDepth settings saved by Freeboard-SK in the same browser. This replaces the
+  red-to-purple scale (`depth-scale.mjs` removed) and the fading of other passes’ soundings.
+- **Bounding-box mode.** New `depthCorridor.mode` setting: `corridor` (the band around the track, as before) or `bbox`
+  (every sounding within the track’s bounding box, plus `depthCorridor.marginM`, 100 m by default). Exposed in the
+  plugin configuration and `GET /api/depth-corridor`.
 
 ## [2.15.0] - 2026-10-30
 

@@ -12,13 +12,29 @@
 export const LIVEDEPTH_STATE_KEY = 'fb-plotterext-state';
 export const LIVEDEPTH_EXTENSION = 'signalk-livedepth-plugin';
 
-// LiveDepth's defaults and bounds (its src/web/shared/settings.ts). The shade
-// limit is null when not saved, so the scale is fitted to the passage.
-export const LIVEDEPTH_DEFAULTS = { safetyDepthM: 3, shadeLimitM: null, maxDepthM: 100 };
+import { LIVEDEPTH_RENDER_DEFAULTS } from './lib/livedepth-render.mjs';
+
+// LiveDepth's defaults and bounds (its src/web/shared/settings.ts).
+export const LIVEDEPTH_DEFAULTS = { safetyDepthM: 3, shadeLimitM: 10, maxDepthM: 100 };
 const FIELDS = {
   safetyDepthM: ['safetyDepthMetres', 0, 50],
   shadeLimitM: ['shadeLimitMetres', 1, 200],
   maxDepthM: ['maxDepthMetres', 1, 500]
+};
+// The other drawing settings, by LiveDepth's own name: [min, max] for a
+// number, 'colour' for a CSS colour, 'boolean'.
+const RENDER_FIELDS = {
+  vectorContours: 'boolean',
+  fieldCells: [256, 4096],
+  contourWidthPx: [0.5, 6],
+  minorContourWidthPx: [0.5, 6],
+  majorContourColor: 'colour',
+  minorContourColor: 'colour',
+  contourIntervalMetres: [0.3048, 50],
+  minorContourMetres: [0.3048, 50],
+  fillMetres: [0, 20],
+  cellPx: [4, 128],
+  mergeTolerance: [0, 1]
 };
 
 function isObject(value) {
@@ -41,9 +57,17 @@ function savedObjects(state) {
   return objects;
 }
 
-// { found, safetyDepthM, shadeLimitM, maxDepthM } from the stored entry (a
-// JSON string or parsed object). Anything missing, malformed or outside
-// LiveDepth's bounds falls back to its default, as LiveDepth itself does.
+function validRender(kind, v) {
+  if (kind === 'boolean') return typeof v === 'boolean';
+  if (kind === 'colour') return typeof v === 'string' && v.length > 0 && v.length < 64;
+  return Number.isFinite(v) && v >= kind[0] && v <= kind[1];
+}
+
+// { found, safetyDepthM, shadeLimitM, maxDepthM, render } from the stored
+// entry (a JSON string or parsed object). `render` holds every LiveDepth
+// setting that affects drawing, under LiveDepth's names, ready for
+// lib/livedepth-render.mjs. Anything missing, malformed or outside LiveDepth's
+// bounds falls back to its default, as LiveDepth itself does.
 export function liveDepthSettings(raw) {
   let state;
   try {
@@ -62,6 +86,20 @@ export function liveDepthSettings(raw) {
       settings.found = true;
     }
   }
+  const render = {
+    ...LIVEDEPTH_RENDER_DEFAULTS,
+    safetyDepthMetres: settings.safetyDepthM,
+    shadeLimitMetres: settings.shadeLimitM,
+    maxDepthMetres: settings.maxDepthM
+  };
+  for (const [field, kind] of Object.entries(RENDER_FIELDS)) {
+    const saved = objects.map((o) => o[field]).find((v) => validRender(kind, v));
+    if (saved !== undefined) {
+      render[field] = saved;
+      settings.found = true;
+    }
+  }
+  settings.render = render;
   return settings;
 }
 

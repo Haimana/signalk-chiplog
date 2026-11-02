@@ -13,11 +13,15 @@ import {
   tilePosition
 } from './lib/livedepth-grid.mjs';
 
-// Only `enabled` and `widthM` are configured (on the server); the rest are
-// fixed here, and the display follows LiveDepth (livedepth-settings.mjs).
+// Only `enabled`, `mode`, `widthM` and `marginM` are configured (on the
+// server); the rest are fixed here, and the display follows LiveDepth
+// (livedepth-settings.mjs, lib/livedepth-render.mjs).
+export const DEPTH_CORRIDOR_MODES = ['corridor', 'bbox'];
 export const DEPTH_CORRIDOR_DEFAULTS = {
   enabled: false,
+  mode: 'corridor',
   widthM: 150,
+  marginM: 100,
   zoom: 16,
   minValidDepthM: 0.3,
   livedepthBase: '/plotterext/signalk-livedepth-plugin/bathymetry'
@@ -49,12 +53,18 @@ function trackLines(track) {
 // worked out on a local equirectangular plane, true to well under a metre
 // over a passage's few tens of miles; a spatial hash of the segments keeps
 // each lookup to the handful near the point.
-export function createCorridor(track, widthM) {
+//
+// With `mode: 'bbox'` the area is instead the track's bounding box grown by
+// `marginM` metres: `contains` is then true anywhere in it, while `distance`
+// still measures to the track (for telling this passage's soundings apart).
+export function createCorridor(track, widthM, { mode = 'corridor', marginM = 0 } = {}) {
   const lines = trackLines(track).filter((line) => line.length > 0);
   const points = lines.flat();
   if (points.length === 0 || !(widthM > 0)) {
     return null;
   }
+  const bbox = mode === 'bbox';
+  const margin = Number.isFinite(marginM) && marginM > 0 ? marginM : 0;
   let [west, south, east, north] = [Infinity, Infinity, -Infinity, -Infinity];
   for (const [lon, lat] of points) {
     west = Math.min(west, lon);
@@ -123,13 +133,18 @@ export function createCorridor(track, widthM) {
     return best;
   };
 
-  const padLon = widthM / kx;
-  const padLat = widthM / ky;
+  const pad = bbox ? margin : widthM;
+  const padLon = pad / kx;
+  const padLat = pad / ky;
+  const box = [west - padLon, south - padLat, east + padLon, north + padLat];
+  const inBox = (lon, lat) => lon >= box[0] && lon <= box[2] && lat >= box[1] && lat <= box[3];
   return {
+    mode: bbox ? 'bbox' : 'corridor',
     widthM,
-    bbox: [west - padLon, south - padLat, east + padLon, north + padLat],
+    marginM: margin,
+    bbox: box,
     distance,
-    contains: (lon, lat) => distance(lon, lat) <= widthM
+    contains: bbox ? inBox : (lon, lat) => distance(lon, lat) <= widthM
   };
 }
 
@@ -148,6 +163,10 @@ export function corridorTiles(corridor, z) {
   const tiles = [];
   for (let x = Math.floor(nw.x); x <= Math.floor(se.x); x++) {
     for (let y = Math.floor(nw.y); y <= Math.floor(se.y); y++) {
+      if (corridor.mode === 'bbox') {
+        tiles.push({ z, x, y });
+        continue;
+      }
       const { lon, lat: centreLat } = tilePosition(x + 0.5, y + 0.5, z);
       if (corridor.distance(lon, centreLat, reach) <= reach) {
         tiles.push({ z, x, y });
@@ -281,12 +300,18 @@ export async function corridorSoundings(corridor, z, source, { minValidDepthM = 
 export function corridorSettings(value) {
   const v = value && typeof value === 'object' ? value : {};
   const width = v.widthM;
+  const margin = v.marginM;
   return {
     ...DEPTH_CORRIDOR_DEFAULTS,
     enabled: v.enabled === true,
+    mode: DEPTH_CORRIDOR_MODES.includes(v.mode) ? v.mode : DEPTH_CORRIDOR_DEFAULTS.mode,
     widthM:
       Number.isFinite(width) && width >= 50 && width <= 2000
         ? width
-        : DEPTH_CORRIDOR_DEFAULTS.widthM
+        : DEPTH_CORRIDOR_DEFAULTS.widthM,
+    marginM:
+      Number.isFinite(margin) && margin >= 0 && margin <= 2000
+        ? margin
+        : DEPTH_CORRIDOR_DEFAULTS.marginM
   };
 }

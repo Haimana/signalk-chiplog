@@ -41,13 +41,18 @@ describe('depth corridor settings', () => {
     assert.equal(depthCorridor.properties.widthM.default, 150);
     assert.equal(depthCorridor.properties.widthM.minimum, 50);
     assert.equal(depthCorridor.properties.widthM.maximum, 2000);
+    assert.deepEqual(depthCorridor.properties.mode.enum, ['corridor', 'bbox']);
+    assert.equal(depthCorridor.properties.mode.default, 'corridor');
+    assert.equal(depthCorridor.properties.marginM.default, 100);
   });
 
   it('replaces missing or out-of-range values by their default', () => {
     assert.deepEqual(depthCorridorSettings(undefined), DEPTH_CORRIDOR_DEFAULTS);
     assert.deepEqual(Object.keys(chiplog({}).schema.properties.depthCorridor.properties), [
       'enabled',
-      'widthM'
+      'mode',
+      'widthM',
+      'marginM'
     ]);
     const settings = depthCorridorSettings({
       enabled: true,
@@ -58,10 +63,24 @@ describe('depth corridor settings', () => {
       minValidDepthM: 0.5,
       livedepthBase: '/custom/bathymetry/'
     });
-    assert.deepEqual(settings, { enabled: true, widthM: 150 }, 'earlier keys ignored');
+    assert.deepEqual(
+      settings,
+      { enabled: true, mode: 'corridor', widthM: 150, marginM: 100 },
+      'earlier keys ignored'
+    );
     assert.deepEqual(depthCorridorSettings({ enabled: 'yes', widthM: 400 }), {
       enabled: false,
-      widthM: 400
+      mode: 'corridor',
+      widthM: 400,
+      marginM: 100
     });
+    assert.deepEqual(depthCorridorSettings({ enabled: true, mode: 'bbox', marginM: 0 }), {
+      enabled: true,
+      mode: 'bbox',
+      widthM: 150,
+      marginM: 0
+    });
+    assert.equal(depthCorridorSettings({ mode: 'x', marginM: 3000 }).mode, 'corridor');
+    assert.equal(depthCorridorSettings({ marginM: 3000 }).marginM, 100);
   });
 });

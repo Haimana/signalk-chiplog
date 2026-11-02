@@ -103,14 +103,20 @@ As of the last detection cycle, at most 15 seconds old:
 
 The passage map's depth corridor settings (the `depthCorridor` plugin option), with defaults filled in. Keys of earlier
 versions (`zoom`, `shadeLimitM`, `safetyDepthM`, `minValidDepthM`, `livedepthBase`) are ignored. The webapp reads the
-soundings itself, from signalk-livedepth-plugin's public tile endpoints, and takes the safety depth, colour scale and
-maximum depth from LiveDepth's layer settings as Freeboard-SK saved them in the browser (localStorage
+soundings itself, from signalk-livedepth-plugin's public tile endpoints, and draws them with LiveDepth's own rendering
+(ported from the plugin) and LiveDepth's layer settings as Freeboard-SK saved them in the browser (localStorage
 `fb-plotterext-state`, under `signalk-livedepth-plugin`), falling back to LiveDepth's defaults.
+
+`mode` is `corridor` (soundings within `widthM` metres either side of the track) or `bbox` (every sounding within the
+track's bounding box grown by `marginM` metres, 0–2000, default 100). `widthM` applies to `corridor` only, `marginM` to
+`bbox` only.
 
 ```json
 {
   "enabled": true,
-  "widthM": 150
+  "mode": "corridor",
+  "widthM": 150,
+  "marginM": 100
 }
 ```
 
