@@ -30,3 +30,32 @@ describe('plugin configuration schema', () => {
     assert.deepEqual(properties.retrospectiveHistorySource.enum, ['influxdb1', 'signalk']);
   });
 });
+
+describe('depth corridor settings', () => {
+  const { DEPTH_CORRIDOR_DEFAULTS, depthCorridorSettings } = require('../lib/depth-corridor');
+
+  it('is offered off by default, under one object in the schema', () => {
+    const { depthCorridor } = chiplog({}).schema.properties;
+    assert.equal(depthCorridor.type, 'object');
+    assert.equal(depthCorridor.properties.enabled.default, false);
+    assert.equal(depthCorridor.properties.widthM.default, 300);
+    assert.equal(depthCorridor.properties.widthM.minimum, 50);
+    assert.equal(depthCorridor.properties.widthM.maximum, 2000);
+  });
+
+  it('replaces missing or out-of-range values by their default', () => {
+    assert.deepEqual(depthCorridorSettings(undefined), DEPTH_CORRIDOR_DEFAULTS);
+    const settings = depthCorridorSettings({
+      enabled: true,
+      widthM: 5000,
+      zoom: 17.4,
+      minValidDepthM: 0.5,
+      livedepthBase: '/custom/bathymetry/'
+    });
+    assert.equal(settings.enabled, true);
+    assert.equal(settings.widthM, 300);
+    assert.equal(settings.zoom, 17);
+    assert.equal(settings.minValidDepthM, 0.5);
+    assert.equal(settings.livedepthBase, '/custom/bathymetry');
+  });
+});
