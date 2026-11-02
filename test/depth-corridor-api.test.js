@@ -12,7 +12,7 @@ describe('GET /depth-corridor', () => {
     const { status, body } = await ctx.request('GET', '/depth-corridor');
     assert.equal(status, 200);
     assert.equal(body.enabled, false);
-    assert.equal(body.widthM, 300);
+    assert.equal(body.widthM, 150);
     assert.equal(body.livedepthBase, '/plotterext/signalk-livedepth-plugin/bathymetry');
   });
 

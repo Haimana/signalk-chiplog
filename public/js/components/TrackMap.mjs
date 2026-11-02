@@ -26,6 +26,10 @@ function boatIcon(headingRadians) {
 const TILE_REFERRER_POLICY = 'strict-origin-when-cross-origin';
 
 // Leaflet renders a string tooltip as HTML; place names are typed by the crew.
+// Whether the crew switched the depth corridor off, so the next passage
+// opened in this page does not switch it back on.
+let depthHiddenByCrew = false;
+
 function textTooltip(text) {
   const element = document.createElement('span');
   element.textContent = text;
@@ -58,6 +62,12 @@ export function TrackMap({ track, entry, boat }) {
       .layers({ OpenStreetMap: streets }, { [t('map.seamarks')]: seamarks })
       .addTo(instance);
     map.current = instance;
+    // Only the layers control fires these, so they are the crew's own choice.
+    instance.on('overlayadd overlayremove', (event) => {
+      if (depth.current && event.layer === depth.current) {
+        depthHiddenByCrew = event.type === 'overlayremove';
+      }
+    });
     return () => {
       instance.remove();
       map.current = null;
@@ -67,8 +77,9 @@ export function TrackMap({ track, entry, boat }) {
   }, []);
 
   // The LiveDepth soundings around the track, offered as an overlay when the
-  // server enables it. Its code and tiles load only once the crew switches it
-  // on; a refreshed track replaces the layer, keeping it on if it was.
+  // server enables it, and then on unless the crew switched it off. Its code
+  // and tiles load only once it is on; a refreshed track replaces the layer,
+  // keeping it on or off as it was.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -105,7 +116,7 @@ export function TrackMap({ track, entry, boat }) {
       }
       depth.current = placeholder;
       layers.current?.addOverlay(placeholder, t('map.depthCorridor'));
-      if (wasOn) {
+      if (previous ? wasOn : !depthHiddenByCrew) {
         placeholder.addTo(instance);
       }
     })();

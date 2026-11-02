@@ -38,7 +38,7 @@ describe('depth corridor settings', () => {
     const { depthCorridor } = chiplog({}).schema.properties;
     assert.equal(depthCorridor.type, 'object');
     assert.equal(depthCorridor.properties.enabled.default, false);
-    assert.equal(depthCorridor.properties.widthM.default, 300);
+    assert.equal(depthCorridor.properties.widthM.default, 150);
     assert.equal(depthCorridor.properties.widthM.minimum, 50);
     assert.equal(depthCorridor.properties.widthM.maximum, 2000);
   });
@@ -53,7 +53,7 @@ describe('depth corridor settings', () => {
       livedepthBase: '/custom/bathymetry/'
     });
     assert.equal(settings.enabled, true);
-    assert.equal(settings.widthM, 300);
+    assert.equal(settings.widthM, 150);
     assert.equal(settings.zoom, 17);
     assert.equal(settings.minValidDepthM, 0.5);
     assert.equal(settings.livedepthBase, '/custom/bathymetry');

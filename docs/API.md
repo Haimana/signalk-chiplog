@@ -107,9 +107,9 @@ the soundings itself, from signalk-livedepth-plugin's public tile endpoints unde
 ```json
 {
   "enabled": false,
-  "widthM": 300,
+  "widthM": 150,
   "zoom": 16,
-  "shadeLimitM": 10,
+  "shadeLimitM": 0,
   "safetyDepthM": 3,
   "minValidDepthM": 0.3,
   "livedepthBase": "/plotterext/signalk-livedepth-plugin/bathymetry"

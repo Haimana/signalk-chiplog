@@ -9,10 +9,12 @@ All notable changes to Chiplog are documented here. The format follows
 ### Added
 
 - **Depths along the track.** With signalk-livedepth-plugin installed and the new **Depth corridor** settings enabled, a
-  passage map offers a _Depths along the track (LiveDepth)_ overlay: the soundings within a configurable band either
-  side of the track (300 m by default), coloured with LiveDepth's shading, shallower than the safety depth outlined in
-  red, with the depth on hover or click. The depths are LiveDepth's shallowest per cell, below the transducer and not
-  corrected for tide, from every passage through the area. Tiles are read only when the overlay is switched on.
+  passage map shows a _Depths along the track (LiveDepth)_ overlay, on by default and switched off from the layers menu:
+  the soundings within a configurable band either side of the track (150 m by default), on a high-contrast scale from
+  red (shallower than the safety depth) through orange, yellow, green, cyan and blue to purple, fitted to the passage’s
+  depths unless a deepest depth is set. Soundings from this passage are drawn solid, those of other passes through the
+  corridor faded; hover or click a cell for its depth. The depths are LiveDepth’s shallowest per cell, below the
+  transducer and not corrected for tide. Tiles are read only while the overlay is on.
 
 ## [2.15.0] - 2026-10-30
 

@@ -566,6 +566,10 @@ main {
   color: #c92a2a;
 }
 
+.depth-legend-own {
+  color: #4b5563;
+}
+
 .depth-legend-status {
   margin-top: 2px;
   font-style: italic;

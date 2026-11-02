@@ -1,18 +1,25 @@
 // A Leaflet overlay of the LiveDepth soundings within a band around the
-// passage's track (see depth-corridor.mjs). Nothing is fetched until the crew
-// switches the overlay on; the cells are drawn on one canvas, redrawn after
-// each pan or zoom, and a finer tile level is read as the map zooms in.
+// passage's track (see depth-corridor.mjs). Nothing is fetched until the layer
+// is on the map; the cells are drawn on one canvas in a pane above the track,
+// redrawn after each pan or zoom, and a finer tile level is read as the map
+// zooms in. Soundings taken on this passage — within a few metres of its track —
+// are drawn solid; those of other passes through the corridor are faded.
 import {
   createCorridor,
   corridorSoundings,
   corridorZoom,
   createTileSource
 } from '../depth-corridor.mjs';
-import { TILE_SIZE, depthColor, tilePosition } from '../lib/livedepth-grid.mjs';
+import { legendGradient, scaleColour, scaleMax } from '../depth-scale.mjs';
+import { TILE_SIZE, tilePosition } from '../lib/livedepth-grid.mjs';
 
-const SAFETY_COLOUR = '#c92a2a';
-const MIN_CELL_PX = 3;
+const PANE = 'depthCorridor';
+const MIN_CELL_PX = 5;
 const HIT_PX = 6;
+// Within this of the track, a sounding is taken to be this passage's own.
+export const OWN_TRACK_M = 25;
+const OTHER_PASS_ALPHA = 0.35;
+const OUTLINE = 'rgba(0,0,0,0.45)';
 
 // One source for every passage map in the page, so going back to a passage
 // does not read its tiles again.
@@ -34,6 +41,7 @@ export function createDepthCorridorLayer({ track, settings, t }) {
   let map = null;
   let canvas = null;
   let soundings = [];
+  let scale = { safetyDepthM: settings.safetyDepthM, maxDepthM: scaleMax([], settings) };
   let level = null;
   let loading = 0;
   let status = null;
@@ -61,6 +69,7 @@ export function createDepthCorridorLayer({ track, settings, t }) {
     ctx.clearRect(0, 0, size.x, size.y);
     hits = [];
     const bounds = map.getBounds().pad(0.05);
+    const cells = [];
     for (const s of soundings) {
       if (!bounds.contains([s.lat, s.lon])) {
         continue;
@@ -69,20 +78,30 @@ export function createDepthCorridorLayer({ track, settings, t }) {
       const far = tilePosition(s.x + (s.cx + 1) / TILE_SIZE, s.y + (s.cy + 1) / TILE_SIZE, s.z);
       const a = map.latLngToContainerPoint([corner.lat, corner.lon]);
       const b = map.latLngToContainerPoint([far.lat, far.lon]);
-      const w = Math.max(MIN_CELL_PX, b.x - a.x);
-      const h = Math.max(MIN_CELL_PX, b.y - a.y);
-      const cx = (a.x + b.x) / 2;
-      const cy = (a.y + b.y) / 2;
-      const [r, g, bl] = depthColor(s.depth, settings.shadeLimitM);
-      ctx.fillStyle = `rgb(${r},${g},${bl})`;
-      ctx.fillRect(cx - w / 2, cy - h / 2, w, h);
-      if (s.depth < settings.safetyDepthM) {
-        ctx.strokeStyle = SAFETY_COLOUR;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(cx - w / 2, cy - h / 2, w, h);
-      }
-      hits.push([cx, cy, s]);
+      cells.push({
+        s,
+        x: (a.x + b.x) / 2,
+        y: (a.y + b.y) / 2,
+        w: Math.max(MIN_CELL_PX, b.x - a.x),
+        h: Math.max(MIN_CELL_PX, b.y - a.y)
+      });
     }
+    // Other passes first, so this passage's own band is drawn over them;
+    // deep first within each, so a shoal is never hidden under deeper water.
+    cells.sort((p, q) => p.s.own - q.s.own || q.s.depth - p.s.depth);
+    for (const { s, x, y, w, h } of cells) {
+      const [r, g, b] = scaleColour(s.depth, scale);
+      ctx.globalAlpha = s.own ? 1 : OTHER_PASS_ALPHA;
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(x - w / 2, y - h / 2, w, h);
+      if (s.own) {
+        ctx.strokeStyle = OUTLINE;
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+      }
+      hits.push([x, y, s]);
+    }
+    ctx.globalAlpha = 1;
   };
 
   const load = async () => {
@@ -108,9 +127,17 @@ export function createDepthCorridorLayer({ track, settings, t }) {
       const result = await corridorSoundings(corridor, z, source, settings);
       // A later zoom may have asked for another level meanwhile.
       if (map && result.z === level) {
-        soundings = result.soundings;
+        soundings = result.soundings.map((s) => ({
+          ...s,
+          own: corridor.distance(s.lon, s.lat, OWN_TRACK_M) <= OWN_TRACK_M
+        }));
+        const own = soundings.filter((s) => s.own).map((s) => s.depth);
+        scale = {
+          safetyDepthM: settings.safetyDepthM,
+          maxDepthM: scaleMax(own.length > 0 ? own : soundings.map((s) => s.depth), settings)
+        };
         setStatus(
-          result.soundings.length === 0
+          soundings.length === 0
             ? t('map.depthNone')
             : result.failed > 0
               ? t('map.depthPartial', { failed: result.failed })
@@ -162,50 +189,54 @@ export function createDepthCorridorLayer({ track, settings, t }) {
     options: { position: 'bottomleft' },
     onAdd() {
       const element = L.DomUtil.create('div', 'depth-legend');
-      const stops = [0, 0.25, 0.5, 0.75, 1]
-        .map((f) => {
-          const [r, g, b] = depthColor(f * settings.shadeLimitM, settings.shadeLimitM);
-          return `rgb(${r},${g},${b}) ${f * 100}%`;
-        })
-        .join(', ');
       const title = document.createElement('div');
       title.className = 'depth-legend-title';
       title.textContent = t('map.depthLegend');
-      const ramp = document.createElement('div');
-      ramp.className = 'depth-legend-ramp';
-      ramp.style.background = `linear-gradient(to right, ${stops})`;
-      const scale = document.createElement('div');
-      scale.className = 'depth-legend-scale';
-      for (const text of ['0', `${settings.shadeLimitM / 2}`, `≥ ${settings.shadeLimitM} m`]) {
-        const label = document.createElement('span');
-        label.textContent = text;
-        scale.append(label);
-      }
+      this.ramp = document.createElement('div');
+      this.ramp.className = 'depth-legend-ramp';
+      this.scale = document.createElement('div');
+      this.scale.className = 'depth-legend-scale';
+      const own = document.createElement('div');
+      own.className = 'depth-legend-own';
+      own.textContent = t('map.depthOwn');
       const safety = document.createElement('div');
       safety.className = 'depth-legend-safety';
       safety.textContent = t('map.depthSafety', { depth: settings.safetyDepthM });
-      const note = document.createElement('div');
-      note.className = 'depth-legend-status';
-      element.append(title, ramp, scale, safety, note);
+      this.note = document.createElement('div');
+      this.note.className = 'depth-legend-status';
+      element.append(title, this.ramp, this.scale, safety, own, this.note);
       L.DomEvent.disableClickPropagation(element);
-      this.note = note;
       this.update();
       return element;
     },
     update() {
-      if (this.note) {
-        this.note.textContent = status ?? '';
-        this.note.hidden = !status;
+      if (!this.note) {
+        return;
       }
+      this.ramp.style.background = legendGradient(scale);
+      const mid = Math.round((scale.safetyDepthM + scale.maxDepthM) / 2);
+      this.scale.replaceChildren(
+        ...['0', `${scale.safetyDepthM}`, `${mid}`, `≥ ${scale.maxDepthM} m`].map((text) => {
+          const label = document.createElement('span');
+          label.textContent = text;
+          return label;
+        })
+      );
+      this.note.textContent = status ?? '';
+      this.note.hidden = !status;
     }
   });
 
   const Layer = L.Layer.extend({
     onAdd(instance) {
       map = instance;
+      if (!map.getPane(PANE)) {
+        // Above the track (overlayPane, 400), below markers and popups.
+        map.createPane(PANE).style.zIndex = 450;
+        map.getPane(PANE).style.pointerEvents = 'none';
+      }
       canvas = L.DomUtil.create('canvas', 'depth-corridor leaflet-zoom-hide');
-      canvas.style.pointerEvents = 'none';
-      map.getPanes().overlayPane.append(canvas);
+      map.getPane(PANE).append(canvas);
       legend = new Legend();
       legend.addTo(map);
       map.on('moveend', draw);
@@ -237,5 +268,7 @@ export function createDepthCorridorLayer({ track, settings, t }) {
 
   const layer = new Layer();
   layer.isLoading = () => loading > 0;
+  layer.scale = () => scale;
+  layer.soundings = () => soundings;
   return layer;
 }

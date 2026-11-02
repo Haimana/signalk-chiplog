@@ -16,9 +16,9 @@ import {
 
 export const DEPTH_CORRIDOR_DEFAULTS = {
   enabled: false,
-  widthM: 300,
+  widthM: 150,
   zoom: 16,
-  shadeLimitM: 10,
+  shadeLimitM: 0,
   safetyDepthM: 3,
   minValidDepthM: 0.3,
   livedepthBase: '/plotterext/signalk-livedepth-plugin/bathymetry'
@@ -288,7 +288,7 @@ export function corridorSettings(value) {
     enabled: v.enabled === true,
     widthM: number(v.widthM, d.widthM, 50, 2000),
     zoom: Math.round(number(v.zoom, d.zoom, MIN_ZOOM, BASE_ZOOM)),
-    shadeLimitM: number(v.shadeLimitM, d.shadeLimitM, 1, 200),
+    shadeLimitM: number(v.shadeLimitM, d.shadeLimitM, 0, 200),
     safetyDepthM: number(v.safetyDepthM, d.safetyDepthM, 0, 50),
     minValidDepthM: number(v.minValidDepthM, d.minValidDepthM, 0, 10),
     livedepthBase:

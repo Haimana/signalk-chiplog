@@ -18,6 +18,14 @@ import {
   shadeColor,
   tileFraction
 } from '../public/js/lib/livedepth-grid.mjs';
+import {
+  DEFAULT_SCALE_MAX_M,
+  DEPTH_STOPS,
+  SAFETY_COLOUR,
+  legendGradient,
+  scaleColour,
+  scaleMax
+} from '../public/js/depth-scale.mjs';
 
 // A real sparse-v1 tile served by signalk-livedepth-plugin 0.3.16, on the track
 // of a passage off Mangalia.
@@ -283,8 +291,47 @@ describe('corridor settings', () => {
       livedepthBase: 'http://evil'
     });
     assert.equal(s.enabled, true);
-    assert.equal(s.widthM, 300);
+    assert.equal(s.widthM, 150);
     assert.equal(s.zoom, 17);
     assert.equal(s.livedepthBase, DEPTH_CORRIDOR_DEFAULTS.livedepthBase);
+  });
+});
+
+describe('depth colour scale', () => {
+  const scale = { safetyDepthM: 3, maxDepthM: 40 };
+
+  it('is red under the safety depth, orange at it and purple at the deepest', () => {
+    assert.deepEqual(scaleColour(2.9, scale), SAFETY_COLOUR);
+    assert.deepEqual(scaleColour(3, scale), DEPTH_STOPS[0].slice(1));
+    assert.deepEqual(scaleColour(40, scale), DEPTH_STOPS.at(-1).slice(1));
+    assert.deepEqual(scaleColour(400, scale), DEPTH_STOPS.at(-1).slice(1));
+  });
+
+  it('gives depths 5 m apart clearly different colours', () => {
+    for (let d = 5; d < 35; d += 5) {
+      const [a, b] = [scaleColour(d, scale), scaleColour(d + 5, scale)];
+      const delta = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+      assert.ok(delta > 40, `${d} m vs ${d + 5} m: ${delta}`);
+    }
+  });
+
+  it('keeps a deliberate deepest depth, and fits LiveDepth’s 10 m default or none to the soundings', () => {
+    const depths = Array.from({ length: 100 }, (_, i) => 5 + i * 0.25);
+    assert.equal(scaleMax(depths, { shadeLimitM: 30, safetyDepthM: 3 }), 30);
+    assert.equal(scaleMax(depths, { shadeLimitM: 10, safetyDepthM: 3 }), 30);
+    assert.equal(scaleMax(depths, { shadeLimitM: 0, safetyDepthM: 3 }), 30);
+    assert.equal(
+      scaleMax([...depths, 300], { shadeLimitM: 0, safetyDepthM: 3 }),
+      30,
+      'one stray reading'
+    );
+    assert.equal(scaleMax([], { shadeLimitM: 0, safetyDepthM: 3 }), DEFAULT_SCALE_MAX_M);
+    assert.equal(scaleMax([1, 2], { shadeLimitM: 0, safetyDepthM: 3 }), 8);
+  });
+
+  it('draws the legend from the same colours', () => {
+    const css = legendGradient(scale);
+    assert.ok(css.startsWith('linear-gradient(to right, rgb(215,25,28) 0%'));
+    assert.ok(css.includes('rgb(76,29,149) 100%'));
   });
 });
