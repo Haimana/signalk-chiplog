@@ -16,9 +16,6 @@ export const DEPTH_STOPS = [
 ];
 
 export const DEFAULT_SCALE_MAX_M = 40;
-// A configured shade limit below this is LiveDepth's 10 m default, meant for
-// its own pale ramp: the scale is then fitted to the soundings instead.
-export const LEGACY_SHADE_LIMIT_M = 20;
 const MAX_AUTO_M = 60;
 
 function rampColour(t) {
@@ -43,20 +40,19 @@ export function scaleColour(depth, { safetyDepthM, maxDepthM }) {
   return rampColour(span > 0 ? (depth - safetyDepthM) / span : 1);
 }
 
-// The deepest depth of the scale: the configured shade limit when it is a
-// deliberate one, otherwise the 98th percentile of the soundings rounded up to
-// 5 m, so a stray deep reading does not wash the rest out.
+// The deepest depth of the scale. Fitted to the soundings — their 98th
+// percentile rounded up to 5 m, so a stray deep reading does not wash the rest
+// out — unless LiveDepth's shade limit is set and reaches at least that deep:
+// a shallower one (LiveDepth's 10 m default leaves deeper water to the chart)
+// would paint most of a passage one colour.
 export function scaleMax(depths, { shadeLimitM, safetyDepthM }) {
-  if (shadeLimitM >= LEGACY_SHADE_LIMIT_M) {
-    return shadeLimitM;
-  }
   const valid = depths.filter((d) => Number.isFinite(d)).sort((a, b) => a - b);
-  if (valid.length === 0) {
-    return DEFAULT_SCALE_MAX_M;
+  let fitted = DEFAULT_SCALE_MAX_M;
+  if (valid.length > 0) {
+    const p98 = valid[Math.min(valid.length - 1, Math.floor(valid.length * 0.98))];
+    fitted = Math.min(MAX_AUTO_M, Math.max(safetyDepthM + 5, Math.ceil(p98 / 5) * 5));
   }
-  const p98 = valid[Math.min(valid.length - 1, Math.floor(valid.length * 0.98))];
-  const rounded = Math.ceil(p98 / 5) * 5;
-  return Math.min(MAX_AUTO_M, Math.max(safetyDepthM + 5, rounded));
+  return Number.isFinite(shadeLimitM) && shadeLimitM >= fitted ? shadeLimitM : fitted;
 }
 
 // CSS for the legend's gradient, safety red first.

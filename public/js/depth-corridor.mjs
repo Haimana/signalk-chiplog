@@ -3,7 +3,6 @@
 // Kept free of Leaflet and the DOM so it is tested under Node; the map layer
 // is components/DepthCorridorLayer.mjs.
 import {
-  BASE_ZOOM,
   FORMAT,
   MIN_ZOOM,
   TILE_SIZE,
@@ -14,12 +13,12 @@ import {
   tilePosition
 } from './lib/livedepth-grid.mjs';
 
+// Only `enabled` and `widthM` are configured (on the server); the rest are
+// fixed here, and the display follows LiveDepth (livedepth-settings.mjs).
 export const DEPTH_CORRIDOR_DEFAULTS = {
   enabled: false,
   widthM: 150,
   zoom: 16,
-  shadeLimitM: 0,
-  safetyDepthM: 3,
   minValidDepthM: 0.3,
   livedepthBase: '/plotterext/signalk-livedepth-plugin/bathymetry'
 };
@@ -280,20 +279,14 @@ export async function corridorSoundings(corridor, z, source, { minValidDepthM = 
 // The corridor settings as the server sends them, with anything missing or out
 // of range replaced by its default.
 export function corridorSettings(value) {
-  const d = DEPTH_CORRIDOR_DEFAULTS;
   const v = value && typeof value === 'object' ? value : {};
-  const number = (x, fallback, min, max) =>
-    Number.isFinite(x) && x >= min && x <= max ? x : fallback;
+  const width = v.widthM;
   return {
+    ...DEPTH_CORRIDOR_DEFAULTS,
     enabled: v.enabled === true,
-    widthM: number(v.widthM, d.widthM, 50, 2000),
-    zoom: Math.round(number(v.zoom, d.zoom, MIN_ZOOM, BASE_ZOOM)),
-    shadeLimitM: number(v.shadeLimitM, d.shadeLimitM, 0, 200),
-    safetyDepthM: number(v.safetyDepthM, d.safetyDepthM, 0, 50),
-    minValidDepthM: number(v.minValidDepthM, d.minValidDepthM, 0, 10),
-    livedepthBase:
-      typeof v.livedepthBase === 'string' && v.livedepthBase.startsWith('/')
-        ? v.livedepthBase
-        : d.livedepthBase
+    widthM:
+      Number.isFinite(width) && width >= 50 && width <= 2000
+        ? width
+        : DEPTH_CORRIDOR_DEFAULTS.widthM
   };
 }

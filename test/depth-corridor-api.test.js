@@ -13,17 +13,17 @@ describe('GET /depth-corridor', () => {
     assert.equal(status, 200);
     assert.equal(body.enabled, false);
     assert.equal(body.widthM, 150);
-    assert.equal(body.livedepthBase, '/plotterext/signalk-livedepth-plugin/bathymetry');
   });
 
   it('passes the configured corridor on to the webapp', async () => {
     ctx = await startServer({
-      config: { depthCorridor: { enabled: true, widthM: 500, zoom: 15 } }
+      config: { depthCorridor: { enabled: true, widthM: 500, zoom: 15, safetyDepthM: 2 } }
     });
     const { body } = await ctx.request('GET', '/depth-corridor');
-    assert.equal(body.enabled, true);
-    assert.equal(body.widthM, 500);
-    assert.equal(body.zoom, 15);
-    assert.equal(body.minValidDepthM, 0.3);
+    assert.deepEqual(
+      body,
+      { enabled: true, widthM: 500 },
+      'only the two settings, earlier keys ignored'
+    );
   });
 });

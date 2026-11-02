@@ -11,6 +11,7 @@ import {
   createTileSource
 } from '../depth-corridor.mjs';
 import { legendGradient, scaleColour, scaleMax } from '../depth-scale.mjs';
+import { readLiveDepthSettings } from '../livedepth-settings.mjs';
 import { TILE_SIZE, tilePosition } from '../lib/livedepth-grid.mjs';
 
 const PANE = 'depthCorridor';
@@ -35,13 +36,20 @@ function formatDepth(depth) {
   return `${depth.toFixed(1)} m`;
 }
 
-export function createDepthCorridorLayer({ track, settings, t }) {
+// `display` — safety depth, shade limit, maximum depth — defaults to the
+// LiveDepth layer settings saved in this browser.
+export function createDepthCorridorLayer({
+  track,
+  settings,
+  t,
+  display = readLiveDepthSettings()
+}) {
   const source = sourceFor(settings.livedepthBase);
   const corridor = createCorridor(track, settings.widthM);
   let map = null;
   let canvas = null;
   let soundings = [];
-  let scale = { safetyDepthM: settings.safetyDepthM, maxDepthM: scaleMax([], settings) };
+  let scale = { safetyDepthM: display.safetyDepthM, maxDepthM: scaleMax([], display) };
   let level = null;
   let loading = 0;
   let status = null;
@@ -127,14 +135,17 @@ export function createDepthCorridorLayer({ track, settings, t }) {
       const result = await corridorSoundings(corridor, z, source, settings);
       // A later zoom may have asked for another level meanwhile.
       if (map && result.z === level) {
-        soundings = result.soundings.map((s) => ({
-          ...s,
-          own: corridor.distance(s.lon, s.lat, OWN_TRACK_M) <= OWN_TRACK_M
-        }));
+        // Deeper than LiveDepth's maximum depth is not drawn there either.
+        soundings = result.soundings
+          .filter((s) => s.depth <= display.maxDepthM)
+          .map((s) => ({
+            ...s,
+            own: corridor.distance(s.lon, s.lat, OWN_TRACK_M) <= OWN_TRACK_M
+          }));
         const own = soundings.filter((s) => s.own).map((s) => s.depth);
         scale = {
-          safetyDepthM: settings.safetyDepthM,
-          maxDepthM: scaleMax(own.length > 0 ? own : soundings.map((s) => s.depth), settings)
+          safetyDepthM: display.safetyDepthM,
+          maxDepthM: scaleMax(own.length > 0 ? own : soundings.map((s) => s.depth), display)
         };
         setStatus(
           soundings.length === 0
@@ -201,10 +212,15 @@ export function createDepthCorridorLayer({ track, settings, t }) {
       own.textContent = t('map.depthOwn');
       const safety = document.createElement('div');
       safety.className = 'depth-legend-safety';
-      safety.textContent = t('map.depthSafety', { depth: settings.safetyDepthM });
+      safety.textContent = t('map.depthSafety', { depth: display.safetyDepthM });
+      const origin = document.createElement('div');
+      origin.className = 'depth-legend-own';
+      origin.textContent = t(
+        display.found ? 'map.depthFromLiveDepth' : 'map.depthLiveDepthDefaults'
+      );
       this.note = document.createElement('div');
       this.note.className = 'depth-legend-status';
-      element.append(title, this.ramp, this.scale, safety, own, this.note);
+      element.append(title, this.ramp, this.scale, safety, own, origin, this.note);
       L.DomEvent.disableClickPropagation(element);
       this.update();
       return element;

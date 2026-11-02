@@ -45,17 +45,23 @@ describe('depth corridor settings', () => {
 
   it('replaces missing or out-of-range values by their default', () => {
     assert.deepEqual(depthCorridorSettings(undefined), DEPTH_CORRIDOR_DEFAULTS);
+    assert.deepEqual(Object.keys(chiplog({}).schema.properties.depthCorridor.properties), [
+      'enabled',
+      'widthM'
+    ]);
     const settings = depthCorridorSettings({
       enabled: true,
       widthM: 5000,
-      zoom: 17.4,
+      zoom: 17,
+      shadeLimitM: 10,
+      safetyDepthM: 3,
       minValidDepthM: 0.5,
       livedepthBase: '/custom/bathymetry/'
     });
-    assert.equal(settings.enabled, true);
-    assert.equal(settings.widthM, 150);
-    assert.equal(settings.zoom, 17);
-    assert.equal(settings.minValidDepthM, 0.5);
-    assert.equal(settings.livedepthBase, '/custom/bathymetry');
+    assert.deepEqual(settings, { enabled: true, widthM: 150 }, 'earlier keys ignored');
+    assert.deepEqual(depthCorridorSettings({ enabled: 'yes', widthM: 400 }), {
+      enabled: false,
+      widthM: 400
+    });
   });
 });

@@ -227,6 +227,9 @@ export const MESSAGES = {
     'map.depthLegend': 'Depth below transducer, uncorrected, shallowest',
     'map.depthSafety': 'Red: shallower than {depth} m',
     'map.depthOwn': 'Faded: soundings from other passes',
+    'map.depthFromLiveDepth': 'Safety depth and range from your LiveDepth settings',
+    'map.depthLiveDepthDefaults':
+      'LiveDepth defaults (no saved LiveDepth settings in this browser)',
     'map.depthLoading': 'Loading soundings…',
     'map.depthNone': 'No LiveDepth soundings along this track.',
     'map.depthPartial': '{failed} tiles could not be read.',
@@ -820,6 +823,9 @@ export const MESSAGES = {
     'map.depthLegend': 'Profondeur sous le transducteur, non corrigée, la plus faible',
     'map.depthSafety': 'Rouge : moins de {depth} m',
     'map.depthOwn': 'Estompé : sondes d’autres passages',
+    'map.depthFromLiveDepth': 'Profondeur de sécurité et échelle de vos réglages LiveDepth',
+    'map.depthLiveDepthDefaults':
+      'Valeurs par défaut de LiveDepth (aucun réglage enregistré dans ce navigateur)',
     'map.depthLoading': 'Chargement des sondes…',
     'map.depthNone': 'Aucune sonde LiveDepth le long de cette trace.',
     'map.depthPartial': '{failed} tuiles n’ont pas pu être lues.',

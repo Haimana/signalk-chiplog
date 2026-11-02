@@ -101,18 +101,16 @@ As of the last detection cycle, at most 15 seconds old:
 
 ### `GET /depth-corridor` — `readonly`
 
-The passage map's depth corridor settings (the `depthCorridor` plugin option), with defaults filled in. The webapp reads
-the soundings itself, from signalk-livedepth-plugin's public tile endpoints under `livedepthBase`.
+The passage map's depth corridor settings (the `depthCorridor` plugin option), with defaults filled in. Keys of earlier
+versions (`zoom`, `shadeLimitM`, `safetyDepthM`, `minValidDepthM`, `livedepthBase`) are ignored. The webapp reads the
+soundings itself, from signalk-livedepth-plugin's public tile endpoints, and takes the safety depth, colour scale and
+maximum depth from LiveDepth's layer settings as Freeboard-SK saved them in the browser (localStorage
+`fb-plotterext-state`, under `signalk-livedepth-plugin`), falling back to LiveDepth's defaults.
 
 ```json
 {
-  "enabled": false,
-  "widthM": 150,
-  "zoom": 16,
-  "shadeLimitM": 0,
-  "safetyDepthM": 3,
-  "minValidDepthM": 0.3,
-  "livedepthBase": "/plotterext/signalk-livedepth-plugin/bathymetry"
+  "enabled": true,
+  "widthM": 150
 }
 ```
 

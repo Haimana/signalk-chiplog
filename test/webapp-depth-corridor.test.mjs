@@ -26,6 +26,11 @@ import {
   scaleColour,
   scaleMax
 } from '../public/js/depth-scale.mjs';
+import {
+  LIVEDEPTH_STATE_KEY,
+  liveDepthSettings,
+  readLiveDepthSettings
+} from '../public/js/livedepth-settings.mjs';
 
 // A real sparse-v1 tile served by signalk-livedepth-plugin 0.3.16, on the track
 // of a passage off Mangalia.
@@ -288,12 +293,11 @@ describe('corridor settings', () => {
       enabled: true,
       widthM: 10,
       zoom: 17,
+      safetyDepthM: 9,
       livedepthBase: 'http://evil'
     });
-    assert.equal(s.enabled, true);
-    assert.equal(s.widthM, 150);
-    assert.equal(s.zoom, 17);
-    assert.equal(s.livedepthBase, DEPTH_CORRIDOR_DEFAULTS.livedepthBase);
+    assert.deepEqual(s, { ...DEPTH_CORRIDOR_DEFAULTS, enabled: true }, 'earlier keys ignored');
+    assert.equal(corridorSettings({ widthM: 400 }).widthM, 400);
   });
 });
 
@@ -318,6 +322,12 @@ describe('depth colour scale', () => {
   it('keeps a deliberate deepest depth, and fits LiveDepth’s 10 m default or none to the soundings', () => {
     const depths = Array.from({ length: 100 }, (_, i) => 5 + i * 0.25);
     assert.equal(scaleMax(depths, { shadeLimitM: 30, safetyDepthM: 3 }), 30);
+    assert.equal(
+      scaleMax(depths, { shadeLimitM: 45, safetyDepthM: 3 }),
+      45,
+      'a deeper shade limit is kept'
+    );
+    assert.equal(scaleMax(depths, { shadeLimitM: null, safetyDepthM: 3 }), 30);
     assert.equal(scaleMax(depths, { shadeLimitM: 10, safetyDepthM: 3 }), 30);
     assert.equal(scaleMax(depths, { shadeLimitM: 0, safetyDepthM: 3 }), 30);
     assert.equal(
@@ -333,5 +343,64 @@ describe('depth colour scale', () => {
     const css = legendGradient(scale);
     assert.ok(css.startsWith('linear-gradient(to right, rgb(215,25,28) 0%'));
     assert.ok(css.includes('rgb(76,29,149) 100%'));
+  });
+});
+
+describe('LiveDepth display settings', () => {
+  const defaults = { found: false, safetyDepthM: 3, shadeLimitM: null, maxDepthM: 100 };
+  // As Freeboard-SK 3.4 stores LiveDepth 0.3.16's settings.
+  const stored = (values, scope = 'extension') =>
+    JSON.stringify({
+      'other-extension': { extension: { safetyDepthMetres: 9 } },
+      'signalk-livedepth-plugin':
+        scope === 'extension' ? { extension: values } : { instances: { renderer: values } }
+    });
+
+  it('reads the safety depth, shade limit and maximum depth LiveDepth saved', () => {
+    const values = {
+      enabled: true,
+      safetyDepthMetres: 2.5,
+      shadeLimitMetres: 25,
+      maxDepthMetres: 60,
+      cellPx: 24
+    };
+    const expected = { found: true, safetyDepthM: 2.5, shadeLimitM: 25, maxDepthM: 60 };
+    assert.deepEqual(liveDepthSettings(stored(values)), expected);
+    assert.deepEqual(liveDepthSettings(stored(values, 'instance')), expected, 'per widget');
+  });
+
+  it('falls back to LiveDepth’s defaults for anything missing, malformed or out of bounds', () => {
+    assert.deepEqual(liveDepthSettings(null), defaults);
+    assert.deepEqual(liveDepthSettings('{not json'), defaults);
+    assert.deepEqual(liveDepthSettings('[]'), defaults);
+    assert.deepEqual(
+      liveDepthSettings(JSON.stringify({ 'signalk-livedepth-plugin': 'x' })),
+      defaults
+    );
+    assert.deepEqual(
+      liveDepthSettings(
+        stored({ safetyDepthMetres: '2', shadeLimitMetres: 0, maxDepthMetres: 900 })
+      ),
+      defaults
+    );
+    assert.deepEqual(liveDepthSettings(stored({ safetyDepthMetres: 0 })), {
+      ...defaults,
+      found: true,
+      safetyDepthM: 0
+    });
+  });
+
+  it('reads the Freeboard-SK entry from storage, and survives blocked storage', () => {
+    const storage = {
+      getItem: (key) => (key === LIVEDEPTH_STATE_KEY ? stored({ safetyDepthMetres: 4 }) : null)
+    };
+    assert.equal(readLiveDepthSettings(storage).safetyDepthM, 4);
+    const blocked = {
+      getItem() {
+        throw new Error('SecurityError');
+      }
+    };
+    assert.deepEqual(readLiveDepthSettings(blocked), defaults);
+    assert.deepEqual(readLiveDepthSettings(undefined), defaults);
   });
 });
